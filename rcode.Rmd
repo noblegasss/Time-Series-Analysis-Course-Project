@@ -1,0 +1,325 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+library(dplyr)
+library(readr)
+library(ggplot2)
+library(gridExtra)
+library(xts)
+library(dtw)
+library(TSclust)
+library(dtwclust)
+library(TSdist)
+```
+
+```{r}
+data <- read.csv(file="/Users/123456/Documents/time series/stock-time-series-20050101-to-20171231/all_stocks_2017-01-01_to_2018-01-01.csv", header=TRUE, sep=",")
+
+```
+
+
+## We create a new datase that only includes difference of open-close price, difference of high-low price and stock volume of each company.
+```{r}
+data$diff_OC<-data$Open-data$Close
+data$diff_HL<-data$High-data$Low
+
+data.new<-data[,c(1,7,6,8,9)]
+```
+
+## Data cleaning and normalized, in this part we set all missing data equal to 0.
+```{r}
+data.new[is.na(data.new)]<-0
+data.new$Date <- as.Date(data.new$Date, format = "%Y-%m-%d")
+
+data.new[,c(3,4,5)]<- scale(data.new[,c(3,4,5)])
+```
+
+```{r}
+# table<-NULL
+# for (i in unique(data$Name)){
+#     table=rbind(table,data.new[data.new$Name==i,])
+# }
+```
+
+## In this part, we seperate 31 companies into a stock_list.
+```{r}
+stock_list <- vector(mode="list", length=length(unique(data.new$Name)))
+i = 1
+for (c in unique(data.new$Name)){
+    stock_list[[i]] <- filter(data.new, Name == c)
+
+    i <- i+1
+}
+```
+
+## Time Series Plot for Google
+```{r}
+par(mfrow=c(2,1))
+a=stock_list[[29]]
+xts1<-xts(a$diff_OC,order.by=a$Date)
+xts2<-xts(a$Volume,order.by=a$Date)
+ts.plot(xts1,col="red",ylim=c(-10,15),ylab="Dollors")
+lines(a$diff_HL,col="blue",ylab="Dollors")
+ts.plot(xts2,col="orange",ylab="Quantities")
+```
+
+## Time Series Plot for APPLE
+```{r}
+par(mfrow=c(2,1))
+a=stock_list[[3]]
+xts1<-xts(a$diff_OC,order.by=a$Date)
+xts2<-xts(a$Volume,order.by=a$Date)
+ts.plot(xts1,col="red",ylim=c(-2,3),ylab="Dollors")
+lines(a$diff_HL,col="blue",ylab="Dollors")
+ts.plot(xts2,col="orange",ylab="Quantities")
+```
+
+## Time Series Plot for AMAZON
+```{r}
+par(mfrow=c(2,1))
+a=stock_list[[30]]
+xts1<-xts(a$diff_OC,order.by=a$Date)
+xts2<-xts(a$Volume,order.by=a$Date)
+ts.plot(xts1,col="red",ylim=c(-20,20),ylab="Dollors")
+lines(a$diff_HL,col="blue",ylab="Dollors")
+ts.plot(xts2,col="orange",ylab="Quantities")
+```
+
+## For univariate distance measures, we first apply the DTW methods to calculate the distance of open-close price difference.
+```{r}
+stock_list2 <- vector(mode="list", length=length(unique(data.new$Name)))
+i=1
+for (c in unique(data.new$Name)){
+    stock_list2[[i]] <- stock_list[[i]][,4]
+    i=i+1
+}
+
+#l=matrix(data=stock_list2,nrow=31,ncol=251)
+#names(l)<-c('MMM', 'AXP', 'AAPL', 'BA', 'CAT', 'CVX', 'CSCO', 'KO', 'DIS', 'XOM', 'GE','GS', 'HD', 'IBM', 'INTC', 'JNJ', 'JPM', 'MCD', 'MRK', 'MSFT', 'NKE', 'PFE','PG', 'TRV', 'UTX', 'UNH', 'VZ', 'WMT', 'GOOGL', 'AMZN', 'AABA')
+```
+
+
+```{r}
+DM_DTW<-TSDatabaseDistances(stock_list2,distance="dtw")
+dist_DTW <- dist(stock_list2, stock_list2, method = "dtw_basic")
+DM_EUC<-TSDatabaseDistances(stock_list2,distance="euclidean")
+```
+
+```{r}
+#DM_DTW
+diag(dist_DTW) <- NA
+```
+
+```{r}
+NN_DTW <- apply(dist_DTW, 1, which.min)
+NN_DTW
+```
+
+As we can see the 8,22
+
+```{r}
+c1=as.ts(stock_list2[[8]])
+c2=as.ts(stock_list2[[22]])
+c3=as.ts(stock_list2[[7]])
+#c4=as.ts(stock_list2[[31]])
+
+par(mfrow=c(3,1))
+ts.plot(c1,col="red",ylim=c(-.6,.6),ylab="Dollors",xlab="NKE")
+ts.plot(c2,col="red",ylim=c(-.6,.6),ylab="Dollors",xlab="KO")
+ts.plot(c3,col="red",ylim=c(-.6,.6),ylab="Dollors",xlab="CSCO")
+#ts.plot(c4,col="red",ylim=c(-1,1),ylab="Dollors")
+```
+
+
+## For multivariate distance measures, 
+```{r}
+N=length(unique(data.new$Name))
+T=251
+
+data.multi<-NULL
+for (i in 1:N){
+    X=t(as.matrix(stock_list[[i]][,c(3,4,5)]))
+    data.multi<-rbind(data.multi,X)
+}
+
+data.multi2<-t(data.multi)
+data.multi2 = (data.multi2 - matrix(rep(1,T),ncol=1)%*%apply(data.multi2,2,mean)) / (matrix(rep(1,T),ncol=1)%*%apply(data.multi2,2,sd))
+```
+
+```{r}
+data_fft = mvfft(data.multi2)
+data_fft = data_fft[c(1:ceiling(251/2)),]
+
+data_per = (1/2/pi/T)*data_fft*Conj(data_fft)
+data_per = abs(data_per)
+
+data_cper = NULL
+for (p in 1:N) {
+  cper_new = (1/2/pi/T)*data_fft[,2*p-1]*Conj(data_fft[,2*p])
+  data_cper = cbind(data_cper, cper_new)
+}
+
+T2 = dim(data_per)[1]
+P2 = dim(data_per)[2]
+
+T3 = dim(data_cper)[1]
+P3 = dim(data_cper)[2]
+
+# smoothing periodograms and crossperiodograms
+m = 10 ;
+
+data_per_ud = apply(data_per,2,rev) ;
+data_per_2 = rbind( rep(0,P2), data_per_ud[(T2-m):(T2-1),], data_per, data_per_ud[2:(m+1),] ) 
+
+data_per_sm = apply(data_per_2,2,cumsum) 
+data_per_sm = data_per_sm[(2*m+2):dim(data_per_sm)[1],] - data_per_sm[1:(dim(data_per_sm)[1]-2*m-1),] 
+data_per_sm = data_per_sm/(2*m+1) 
+
+data_cper_ud = apply(data_cper,2,rev) 
+data_cper_2 = rbind( rep(0,P3), data_cper_ud[(T3-m):(T3-1),], data_cper, data_cper_ud[2:(m+1),] ) 
+
+data_cper_sm = apply(data_cper_2,2,cumsum) 
+data_cper_sm = data_cper_sm[(2*m+2):dim(data_cper_sm)[1],] - data_cper_sm[1:(dim(data_cper_sm)[1]-2*m-1),] 
+data_cper_sm = data_cper_sm/(2*m+1) 
+
+Q = NULL ;
+for (q in 1:(N-1)) {
+  for (p in (q+1):N) {
+    Q_new1 = abs(data_per_sm[,2*p-1] * data_per_sm[,2*p] - abs(data_cper_sm[,p])^2) 
+    Q_new2 = abs(data_per_sm[,2*q-1] * data_per_sm[,2*q] - abs(data_cper_sm[,q])^2) 
+    Q_new12 = abs( (data_per_sm[,2*p-1] + data_per_sm[,2*q-1]) * 
+                     (data_per_sm[,2*p] + data_per_sm[,2*q]) - 
+                     abs(data_cper_sm[,p] + data_cper_sm[,q])^2) 
+    Q_new = (Q_new1 * Q_new2) / (Q_new12^2)        
+    Q_new = 2^(2*2)*Q_new 
+    Q = cbind(Q, Q_new) 
+  }
+}
+Q_st = Q ;
+
+M = T/10 ;
+
+par(mfrow=c(2,1))
+plot(Q_st[,1],main="Q_XY(omega_l) for company MMM,AXP",ylab="Q_XY(omega)")
+lines(Q_st[,1])
+smallest1 <- sort(Q_st[,1],index.return=TRUE)$ix[1:M]
+points(smallest1,Q_st[smallest1,1],col="orange")
+
+plot(Q_st[,(2*N-2)],main="Q_XY(omega_l) for company AAPL,BA",ylab="Q_XY(omega)")
+lines(Q_st[,(2*N-2)])
+smallest2 <- sort(Q_st[,(2*N-2)],index.return=TRUE)$ix[1:M]
+points(smallest2,Q_st[smallest2,(2*N-2)],col="orange")
+```
+
+```{r}
+mean(smallest1)
+mean(smallest2)
+```
+
+
+```{r CharTraj}
+ret = function(i){
+  l = subset(data,data$Name==comp[i])
+  l=l$Close-l$Open
+  l=scale(l)
+  l[145] = 0
+  l = l[1:251]
+}
+
+```
+
+### Including Plots
+
+![Data Table](/Users/123456/Downloads/screenshot (1).png)
+
+We installed the 'dtwclust' library:
+
+```{r warning=FALSE, message=FALSE}
+#install.packages('dtwclust')
+library('dtwclust')
+```
+```{r}
+comp = levels(data$Name)
+```
+
+To be able to use dist function id dtwclust library, we created a list called list as follows:
+
+```{r}
+list = list(ret(1),ret(2),ret(3),ret(4),ret(5),ret(6),ret(7),ret(8),ret(9),ret(10),
+            ret(11),ret(12),ret(13),ret(14),ret(15),ret(16),ret(17),ret(18),ret(19),ret(20),
+            ret(21),ret(22),ret(23),ret(24),ret(25),ret(26),ret(27),ret(28),ret(29),ret(30),ret(31)
+            )
+
+```
+
+We created a distance matrix for two different distance measures, Euclidean and dtw. 
+```{r echo=TRUE}
+dist_DTW <- dist(list, list, method = "dtw_basic")
+dist_Euc <- dist(list, list, method = "euclidean")
+
+```
+
+The distance matrix for DTW is 
+```{r echo=FALSE}
+dist_DTW
+```
+
+The distance matrix for Euclidean distance is
+```{r}
+dist_Euc
+```
+
+```{r}
+list=setNames(list,comp)
+```
+
+To perform a hierarchical clustering, we used tsclust function in dtwclust package. We have done it for two different distance measurement.
+```{r echo=TRUE}
+hc_DTW = tsclust(list, type="h", k=5, distance= "dtw_basic")
+hc_EUC = tsclust(list, type="h", k=5, distance= "euclidean")
+
+```
+
+This is the dendogram for dtw distance 
+```{r echo=TRUE}
+ plot(hc_DTW)
+```
+
+
+The dendogram for euclidean distance
+```{r echo=TRUE}
+ plot(hc_EUC)
+```
+
+By looking at the dendograms, we decided to use 5 clusters for both distance measures.
+Here are the members of each cluster:
+```{r echo=TRUE}
+  hc_DTW@cluster	
+
+  hc_EUC@cluster
+
+```
+
+The plot of behavior of the members of each clusters for DTW is as follows:
+
+```{r echo=TRUE}
+plot(hc_DTW,type="sc")
+```
+
+We observed that companies in the same sector are usually in the same cluster and have similar return behavior.
+```{r}
+plot(ret(3),type='l',col='blue', main='AMZN vs GOOGL')
+lines(ret(11),col='red')
+plot(ret(3),type='l',col='blue', main='AMZN vs PG')
+lines(ret(25),col='red')
+```
+
+```{r}
+plot(ret(12),type='l',col='blue', main='GS vs JPM')
+lines(ret(17),col='red')
+plot(ret(12),type='l',col='blue', main='GS vs NKE')
+lines(ret(23),col='red')
+```
